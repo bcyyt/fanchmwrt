@@ -53,15 +53,17 @@ jobs:
           CONFIG_TARGET_MULTI_PROFILE=y
           CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_supergateway_s20p=y
           CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-theme-bootstrap=y
           CONFIG_PACKAGE_iptv-auth=y
           CONFIG_PACKAGE_luci-app-natfrp=y
           CONFIG_PACKAGE_luci-compat=y
           CONFIG_PACKAGE_kmod-nft-offload=y
+          CONFIG_PACKAGE_luci-app-statusfw=y
+          CONFIG_PACKAGE_luci-theme-vantage=y
+          CONFIG_PACKAGE_luci-app-vantage=y
           EOF
           make defconfig -j1
           grep -c "supergateway_s20p" .config
-          grep -E "CONFIG_PACKAGE_(iptv-auth|luci-app-natfrp|kmod-nft-offload)=y" .config
+          grep -E "CONFIG_PACKAGE_(iptv-auth|luci-app-natfrp|kmod-nft-offload|luci-app-statusfw|luci-theme-vantage|luci-app-vantage)=y" .config
 
       - name: Build firmware
         run: |

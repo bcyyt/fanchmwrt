@@ -1,11 +1,15 @@
 #!/bin/bash
-# S20P 专属插件注入：iptv-auth + luci-app-natfrp
-# 机制与 OpenWRT-CI 的 BCYYT_INJECT 相同：生成伪包 Makefile，把预编译 ipk 的
-# data.tar.gz 原样铺进固件 rootfs（PKGARCH:=all，与 opkg/apk 无关）
-# 本仓库仅编 aarch64（S20P），故只取 aarch64/arm64 变体
+# S20P 专属定制注入：iptv-auth + luci-app-natfrp + luci-app-statusfw + Vantage 仪表盘
+# 机制与 OpenWRT-CI 的 BCYYT_INJECT/UPDATE_PACKAGE 相同：
+#   - 伪包注入：生成 Makefile 把预编译 ipk 的 data.tar.gz 原样铺进固件 rootfs（PKGARCH:=all）
+#   - statusfw 注入后执行编译期改造（菜单改名/PPE 采样/快捷方式页）
+#   - Vantage 主题从 anothaDev 源码克隆 + 快捷方式条注入 + CSS 修复
+# 本仓库仅编 aarch64（S20P），故只取对应架构变体（statusfw 内容架构无关）
 set -e
 
+GITHUB_WORKSPACE="${GITHUB_WORKSPACE:-$(pwd)}"
 BCYYT_RAW="https://gitee.com/bcyyt/my-openwrt/raw/main/packages"
+BCYYT_API="https://gitee.com/api/v5/repos/bcyyt/my-openwrt/contents/packages"
 NATFRP_BASE="https://nya.globalslb.net/natfrp/client/launcher-openwrt"
 
 SHA256() {
@@ -16,9 +20,9 @@ SHA256() {
 }
 
 #生成内置包Makefile：把预编译ipk的data.tar.gz原样装入rootfs
-#参数：包名 版本 描述 依赖 conffiles 源文件名 源URL 哈希
+#参数：包名 版本 描述 依赖 conffiles 源文件名 源URL 哈希 编译期patch命令(可选)
 INJECT() {
-        local PKG_NAME=$1 PKG_VER=$2 PKG_TITLE=$3 PKG_DEPS=$4 PKG_CONFFILES=$5 PKG_SRC=$6 PKG_URL=$7 PKG_HASH=$8
+        local PKG_NAME=$1 PKG_VER=$2 PKG_TITLE=$3 PKG_DEPS=$4 PKG_CONFFILES=$5 PKG_SRC=$6 PKG_URL=$7 PKG_HASH=$8 PKG_PATCH=$9
         local PKG_DIR="./package/bcyyt/$PKG_NAME"
         mkdir -p "$PKG_DIR"
         cat > "$PKG_DIR/Makefile" <<EOF
@@ -39,7 +43,7 @@ define Package/$PKG_NAME
   SECTION:=luci
   CATEGORY:=LuCI
   TITLE:=$PKG_TITLE
-  URL:=https://github.com/bcyyt/fanchmwrt
+  URL:=https://gitee.com/bcyyt/my-openwrt
   DEPENDS:=$PKG_DEPS
   PKGARCH:=all
 endef
@@ -49,6 +53,7 @@ define Build/Prepare
 	mkdir -p \$(PKG_BUILD_DIR)/ipk \$(PKG_BUILD_DIR)/root
 	tar -C \$(PKG_BUILD_DIR)/ipk -xzf \$(DL_DIR)/\$(PKG_SOURCE)
 	tar -C \$(PKG_BUILD_DIR)/root -xzf \$(PKG_BUILD_DIR)/ipk/data.tar.gz
+	${PKG_PATCH:+$PKG_PATCH}
 endef
 
 define Build/Compile
@@ -64,29 +69,29 @@ endef
 
 \$(eval \$(call BuildPackage,$PKG_NAME))
 EOF
-        echo "$PKG_NAME $PKG_VER injected (package/bcyyt/$PKG_NAME)"
+        echo "$PKG_NAME $PKG_VER injected ($PKG_DIR)"
 }
 
-#===iptv-auth（aarch64）：版本来自version.json，容错回退到最近可用ipk===
+#===iptv-auth（IPTV 认证+M3U/EPG+组播）：gitee OTA 仓 aarch64 ipk===
 IPTV_RAW_VER=$(curl -fsSL --retry 3 --connect-timeout 15 "$BCYYT_RAW/iptv-auth/version.json" | jq -r ".version" 2>/dev/null)
-[ -n "$IPTV_RAW_VER" ] || IPTV_RAW_VER="2.3.70-r15"
+[ -n "$IPTV_RAW_VER" ] || IPTV_RAW_VER="2.3.80-r3"
+iptv_ipk_ok() { curl -fsIL --retry 2 --connect-timeout 10 "$BCYYT_RAW/iptv-auth/iptv-auth_${1}_aarch64.ipk" > /dev/null 2>&1; }
 IPTV_VER="$IPTV_RAW_VER"
-iptv_ok() { curl -fsIL --retry 2 --connect-timeout 10 "$BCYYT_RAW/iptv-auth/iptv-auth_${1}_aarch64.ipk" >/dev/null 2>&1; }
-if ! iptv_ok "$IPTV_VER"; then
-        echo "iptv-auth $IPTV_VER aarch64 ipk missing, falling back..."
-        for v in $(curl -fsSL --retry 3 --connect-timeout 15 "$BCYYT_RAW/iptv-auth/version.json" | jq -r ".changelogs[].version" 2>/dev/null); do
-                if iptv_ok "$v"; then IPTV_VER="$v"; break; fi
+if ! iptv_ipk_ok "$IPTV_VER"; then
+        echo "iptv-auth $IPTV_VER ipk missing on OTA repo, falling back..."
+        for IPTV_FALLBACK in $(curl -fsSL --retry 3 --connect-timeout 15 "$BCYYT_RAW/iptv-auth/version.json" | jq -r ".changelogs[].version" 2>/dev/null); do
+                if iptv_ipk_ok "$IPTV_FALLBACK"; then IPTV_VER="$IPTV_FALLBACK"; break; fi
         done
 fi
 echo "iptv-auth version: $IPTV_VER"
 IPTV_HASH=$(SHA256 "$BCYYT_RAW/iptv-auth/iptv-auth_${IPTV_VER}_aarch64.ipk")
 INJECT "iptv-auth" "$IPTV_VER" \
-        "IPTV auth + M3U/EPG + C replay daemon + rtp2httpd live proxy + STB sniffer" \
+        "IPTV auth + M3U/EPG + C replay daemon + rtp2httpd live proxy + STB sniffer + OTA update detection" \
         "+luci-base +luci-compat +python3 +ca-bundle" \
         "/etc/config/iptv-auth
 /etc/config/stbsniffer
 /etc/sysctl.d/15-iptv-auth.conf" \
-        "iptv-auth_${IPTV_VER}_aarch64.ipk" "$BCYYT_RAW/iptv-auth" "$IPTV_HASH"
+        "iptv-auth_${IPTV_VER}_aarch64.ipk" "$BCYYT_RAW/iptv-auth" "$IPTV_HASH" ""
 
 #===luci-app-natfrp（SakuraFrp 启动器，arm64）：官方目录直取，容错回退===
 NATFRP_VER=""
@@ -102,6 +107,37 @@ INJECT "luci-app-natfrp" "$NATFRP_VER" \
         "SakuraFrp 启动器：frpc 内网穿透客户端 + 后台服务 + LuCI 管理界面" \
         "+luci-base +luci-compat" \
         "/etc/config/natfrp" \
-        "luci-app-natfrp_arm64.ipk" "$NATFRP_BASE/$NATFRP_VER" "$NATFRP_HASH"
+        "luci-app-natfrp_arm64.ipk" "$NATFRP_BASE/$NATFRP_VER" "$NATFRP_HASH" ""
 
-echo "=== S20P 插件注入完成 ==="
+#===luci-app-statusfw（网络与防火墙）：gitee OTA 仓 x86_64 ipk（内容为 Lua/HTM/shell，架构无关）===
+# 编译期改造（statusfw-patch.sh）：菜单改名「网络与防火墙」、快捷方式页替换、
+# PPE 硬件 offload 采样三件套、剔除内嵌文件管理器
+STATUSFW_VER=$(curl -fsSL --retry 3 --connect-timeout 15 "$BCYYT_API/luci-app-statusfw" | jq -r ".[].name" 2>/dev/null | grep -E "^luci-app-statusfw_.*_x86_64\.ipk$" | sed "s/luci-app-statusfw_//;s/_x86_64.ipk//" | sort -V | tail -1)
+[ -n "$STATUSFW_VER" ] || STATUSFW_VER="5.0.15"
+echo "luci-app-statusfw version: $STATUSFW_VER"
+STATUSFW_HASH=$(SHA256 "$BCYYT_RAW/luci-app-statusfw/luci-app-statusfw_${STATUSFW_VER}_x86_64.ipk")
+INJECT "luci-app-statusfw" "$STATUSFW_VER" \
+        "LuCI 网络与防火墙：快捷方式、端口转发、规则管理、安全监测、系统日志" \
+        "+luci-base +luci-compat +python3 +nftables +firewall4" \
+        "/etc/config/statusfw-net
+/etc/config/fwmanager
+/etc/config/statusmon" \
+        "luci-app-statusfw_${STATUSFW_VER}_x86_64.ipk" "$BCYYT_RAW/luci-app-statusfw" "$STATUSFW_HASH" \
+        "bash $GITHUB_WORKSPACE/Scripts/statusfw-patch.sh \$(PKG_BUILD_DIR)"
+
+#===Vantage 仪表盘：anothaDev 源码克隆 + 两处修复 + 默认主题替换===
+VANTAGE_PATH="./package/luci-theme-vantage"
+if [ ! -d "$VANTAGE_PATH" ]; then
+        git clone --depth=1 --single-branch --branch main "https://github.com/anothaDev/luci-theme-vantage.git" "$VANTAGE_PATH"
+fi
+# 进度条标签字体修复（anothaDev/luci-theme-vantage#52）
+sed -i \
+        -e '/^\/\* progress bars: thin track/,$ { /^\.cbi-progressbar::before {/,/^}/ { s/^[[:space:]]*font: 500 var(--fs-micro)\/1\.2 var(--mono);/\tfont: inherit; line-height: normal;/; } }' \
+        "$VANTAGE_PATH/luci-theme-vantage/htdocs/luci-static/vantage/vantage.css" && echo "vantage css fixed"
+# statusfw 快捷方式条注入仪表盘（网格下方独立区块）
+python3 "$GITHUB_WORKSPACE/Scripts/vantage-shortcuts-patch.py" \
+        "$VANTAGE_PATH/luci-app-vantage/htdocs/luci-static/resources/view/vantage/overview.js"
+# 默认主题：luci 集合依赖 bootstrap → vantage（刷机后默认仪表盘）
+find ./feeds/luci/collections/ -type f -name "Makefile" -exec sed -i "s/luci-theme-bootstrap/luci-theme-vantage/g" {} +
+
+echo "=== S20P 插件与仪表盘定制注入完成 ==="
