@@ -1,9 +1,9 @@
 #!/bin/bash
-# S20P 专属定制注入：iptv-auth + luci-app-natfrp + luci-app-statusfw + Vantage 仪表盘
-# 机制与 OpenWRT-CI 的 BCYYT_INJECT/UPDATE_PACKAGE 相同：
+# S20P 专属定制注入：iptv-auth + luci-app-natfrp + luci-app-statusfw + fwx 仪表盘修改
+# 机制与 OpenWRT-CI 的 BCYYT_INJECT 相同：
 #   - 伪包注入：生成 Makefile 把预编译 ipk 的 data.tar.gz 原样铺进固件 rootfs（PKGARCH:=all）
 #   - statusfw 注入后执行编译期改造（菜单改名/PPE 采样/快捷方式页）
-#   - Vantage 主题从 anothaDev 源码克隆 + 快捷方式条注入 + CSS 修复
+#   - fwx 仪表盘（fanchmwrt 原生，feed 自带）注入快捷方式条 + PPE 显示
 # 本仓库仅编 aarch64（S20P），故只取对应架构变体（statusfw 内容架构无关）
 set -e
 
@@ -49,11 +49,11 @@ define Package/$PKG_NAME
 endef
 
 define Build/Prepare
-	rm -rf \$(PKG_BUILD_DIR)
-	mkdir -p \$(PKG_BUILD_DIR)/ipk \$(PKG_BUILD_DIR)/root
-	tar -C \$(PKG_BUILD_DIR)/ipk -xzf \$(DL_DIR)/\$(PKG_SOURCE)
-	tar -C \$(PKG_BUILD_DIR)/root -xzf \$(PKG_BUILD_DIR)/ipk/data.tar.gz
-	${PKG_PATCH:+$PKG_PATCH}
+        rm -rf \$(PKG_BUILD_DIR)
+        mkdir -p \$(PKG_BUILD_DIR)/ipk \$(PKG_BUILD_DIR)/root
+        tar -C \$(PKG_BUILD_DIR)/ipk -xzf \$(DL_DIR)/\$(PKG_SOURCE)
+        tar -C \$(PKG_BUILD_DIR)/root -xzf \$(PKG_BUILD_DIR)/ipk/data.tar.gz
+        ${PKG_PATCH:+$PKG_PATCH}
 endef
 
 define Build/Compile
@@ -64,7 +64,7 @@ $PKG_CONFFILES
 endef
 
 define Package/$PKG_NAME/install
-	\$(CP) \$(PKG_BUILD_DIR)/root/. \$(1)/
+        \$(CP) \$(PKG_BUILD_DIR)/root/. \$(1)/
 endef
 
 \$(eval \$(call BuildPackage,$PKG_NAME))
@@ -125,19 +125,15 @@ INJECT "luci-app-statusfw" "$STATUSFW_VER" \
         "luci-app-statusfw_${STATUSFW_VER}_x86_64.ipk" "$BCYYT_RAW/luci-app-statusfw" "$STATUSFW_HASH" \
         "bash $GITHUB_WORKSPACE/Scripts/statusfw-patch.sh \$(PKG_BUILD_DIR)"
 
-#===Vantage 仪表盘：anothaDev 源码克隆 + 两处修复 + 默认主题替换===
-VANTAGE_PATH="./package/luci-theme-vantage"
-if [ ! -d "$VANTAGE_PATH" ]; then
-        git clone --depth=1 --single-branch --branch main "https://github.com/anothaDev/luci-theme-vantage.git" "$VANTAGE_PATH"
+#===fwx 仪表盘（fanchmwrt 原生 fwx-dashboard）注入快捷方式条 + PPE 显示===
+# 数据源：/cgi-bin/statusmon（statusfw 提供）+ /cgi-bin/statusppe（PPE 采样三件套）
+# 固定项对准 fwx 体系：fwx_network / fwx_network/firewall / 系统管理
+FWX_DASH="./feeds/fanchmwrt/luci-app-fwx-dashboard/luasrc/view/fwx_dashboard/dashboard.htm"
+if [ -f "$FWX_DASH" ]; then
+        python3 "$GITHUB_WORKSPACE/Scripts/fwx-dashboard-shortcuts-patch.py" "$FWX_DASH"
+else
+        echo "ERROR: fwx-dashboard view not found at $FWX_DASH" >&2
+        exit 1
 fi
-# 进度条标签字体修复（anothaDev/luci-theme-vantage#52）
-sed -i \
-        -e '/^\/\* progress bars: thin track/,$ { /^\.cbi-progressbar::before {/,/^}/ { s/^[[:space:]]*font: 500 var(--fs-micro)\/1\.2 var(--mono);/\tfont: inherit; line-height: normal;/; } }' \
-        "$VANTAGE_PATH/luci-theme-vantage/htdocs/luci-static/vantage/vantage.css" && echo "vantage css fixed"
-# statusfw 快捷方式条注入仪表盘（网格下方独立区块）
-python3 "$GITHUB_WORKSPACE/Scripts/vantage-shortcuts-patch.py" \
-        "$VANTAGE_PATH/luci-app-vantage/htdocs/luci-static/resources/view/vantage/overview.js"
-# 默认主题：luci 集合依赖 bootstrap → vantage（刷机后默认仪表盘）
-find ./feeds/luci/collections/ -type f -name "Makefile" -exec sed -i "s/luci-theme-bootstrap/luci-theme-vantage/g" {} +
 
-echo "=== S20P 插件与仪表盘定制注入完成 ==="
+echo "=== S20P 插件与 fwx 仪表盘定制注入完成 ==="

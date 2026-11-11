@@ -58,12 +58,14 @@ jobs:
           CONFIG_PACKAGE_luci-compat=y
           CONFIG_PACKAGE_kmod-nft-offload=y
           CONFIG_PACKAGE_luci-app-statusfw=y
-          CONFIG_PACKAGE_luci-theme-vantage=y
-          CONFIG_PACKAGE_luci-app-vantage=y
+          CONFIG_PACKAGE_luci-app-fwx-dashboard=y
+          CONFIG_PACKAGE_luci-app-fwx-dashboard-setting=y
+          CONFIG_PACKAGE_luci-app-fwx-network=y
+          CONFIG_PACKAGE_luci-app-fwx-firewall=y
           EOF
           make defconfig -j1
           grep -c "supergateway_s20p" .config
-          grep -E "CONFIG_PACKAGE_(iptv-auth|luci-app-natfrp|kmod-nft-offload|luci-app-statusfw|luci-theme-vantage|luci-app-vantage)=y" .config
+          grep -E "CONFIG_PACKAGE_(iptv-auth|luci-app-natfrp|kmod-nft-offload|luci-app-statusfw|luci-app-fwx-dashboard|fwxd|kmod-fwx)=y" .config
 
       - name: Build firmware
         run: |
