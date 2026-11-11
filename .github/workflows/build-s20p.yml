@@ -57,10 +57,11 @@ jobs:
           CONFIG_PACKAGE_iptv-auth=y
           CONFIG_PACKAGE_luci-app-natfrp=y
           CONFIG_PACKAGE_luci-compat=y
+          CONFIG_PACKAGE_kmod-nft-offload=y
           EOF
           make defconfig -j1
           grep -c "supergateway_s20p" .config
-          grep -E "CONFIG_PACKAGE_(iptv-auth|luci-app-natfrp)=y" .config
+          grep -E "CONFIG_PACKAGE_(iptv-auth|luci-app-natfrp|kmod-nft-offload)=y" .config
 
       - name: Build firmware
         run: |
