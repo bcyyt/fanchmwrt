@@ -49,11 +49,11 @@ define Package/$PKG_NAME
 endef
 
 define Build/Prepare
-        rm -rf \$(PKG_BUILD_DIR)
-        mkdir -p \$(PKG_BUILD_DIR)/ipk \$(PKG_BUILD_DIR)/root
-        tar -C \$(PKG_BUILD_DIR)/ipk -xzf \$(DL_DIR)/\$(PKG_SOURCE)
-        tar -C \$(PKG_BUILD_DIR)/root -xzf \$(PKG_BUILD_DIR)/ipk/data.tar.gz
-        ${PKG_PATCH:+$PKG_PATCH}
+	rm -rf \$(PKG_BUILD_DIR)
+	mkdir -p \$(PKG_BUILD_DIR)/ipk \$(PKG_BUILD_DIR)/root
+	tar -C \$(PKG_BUILD_DIR)/ipk -xzf \$(DL_DIR)/\$(PKG_SOURCE)
+	tar -C \$(PKG_BUILD_DIR)/root -xzf \$(PKG_BUILD_DIR)/ipk/data.tar.gz
+	${PKG_PATCH:+$PKG_PATCH}
 endef
 
 define Build/Compile
@@ -64,7 +64,7 @@ $PKG_CONFFILES
 endef
 
 define Package/$PKG_NAME/install
-        \$(CP) \$(PKG_BUILD_DIR)/root/. \$(1)/
+	\$(CP) \$(PKG_BUILD_DIR)/root/. \$(1)/
 endef
 
 \$(eval \$(call BuildPackage,$PKG_NAME))
