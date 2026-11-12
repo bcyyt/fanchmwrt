@@ -25,7 +25,8 @@ jobs:
 
       - name: Unsquash rootfs
         run: |
-          unsquashfs -d rootfs sysupgrade-supergateway_s20p/root > /dev/null
+          sudo unsquashfs -d rootfs sysupgrade-supergateway_s20p/root > /dev/null
+          sudo chown -R runner:docker rootfs 2>/dev/null || sudo chmod -R a+rX rootfs
           echo "fwxd: $(ls -la rootfs/usr/bin/fwxd 2>/dev/null)"
           echo "libfwx: $(ls rootfs/usr/lib/libfwx* 2>/dev/null)"
 
