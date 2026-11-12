@@ -1,0 +1,74 @@
+#!/bin/sh
+# S20P: eMMC 剩余空间自动挂载 /mnt/data（首次启动执行一次，随后自动删除）
+# 布局兼容：
+#  A) 已有 data / rootfs_data 分区（恩山 2G 布局）→ 直接挂载
+#  B) 无数据分区但有紧跟 rootfs 的分区 → 当作数据分区
+#  C) 无数据分区且有未分配空间（需 gdisk）→ 自动创建 data 分区
+# 文件系统：已有则原样挂载（保留数据）；空分区格式化为 f2fs（eMMC 友好）
+
+DATA_PART=""
+
+# --- A) 按 GPT 分区名找（恩山 2G 布局的数据分区一般叫 data 或 rootfs_data）---
+for pl in data rootfs_data; do
+	if [ -e "/dev/disk/by-partlabel/$pl" ]; then
+		DATA_PART="/dev/disk/by-partlabel/$pl"
+		break
+	fi
+done
+
+# --- B) 兜底：rootfs 分区号 +1（恩山布局 rootfs_data 紧跟 rootfs）---
+if [ -z "$DATA_PART" ]; then
+	ROOT_DEV="$(mount | awk '$3=="/rom" || $3=="/overlay" || $3=="/" {print $1; exit}')"
+	case "$ROOT_DEV" in
+		/dev/mmcblk*p[0-9]*)
+			DISK="${ROOT_DEV%p*}"
+			NUM="${ROOT_DEV##*p}"
+			NEXT=$((NUM + 1))
+			[ -b "${DISK}p${NEXT}" ] && DATA_PART="${DISK}p${NEXT}"
+			;;
+	esac
+fi
+
+# --- C) 无数据分区：用剩余空间创建（需要 sgdisk）---
+if [ -z "$DATA_PART" ] && command -v sgdisk >/dev/null 2>&1; then
+	DISK="${DISK:-/dev/mmcblk0}"
+	LAST_END="$(sgdisk -p "$DISK" 2>/dev/null | awk 'END{print $3}')"
+	TOTAL="$(blockdev --getsz "$DISK" 2>/dev/null)"
+	if [ -n "$LAST_END" ] && [ -n "$TOTAL" ] && [ "$((TOTAL - LAST_END))" -gt 2097152 ]; then
+		sgdisk -n "0:0:0" -c "0:data" "$DISK" >/dev/null 2>&1
+		partprobe "$DISK" >/dev/null 2>&1
+		sleep 2
+		for pl in data; do
+			[ -e "/dev/disk/by-partlabel/$pl" ] && DATA_PART="/dev/disk/by-partlabel/$pl"
+		done
+	fi
+fi
+
+[ -n "$DATA_PART" ] || exit 0
+
+# --- 文件系统：空分区格式化 f2fs（eMMC 友好），已有则保留 ---
+if ! blkid "$DATA_PART" >/dev/null 2>&1; then
+	if command -v mkfs.f2fs >/dev/null 2>&1; then
+		mkfs.f2fs -f "$DATA_PART" >/dev/null 2>&1
+	elif command -v mke2fs >/dev/null 2>&1; then
+		mke2fs -t ext4 "$DATA_PART" >/dev/null 2>&1
+	fi
+fi
+
+# --- 写 fstab 持久挂载 /mnt/data ---
+FSTYPE="$(blkid -o value -s TYPE "$DATA_PART" 2>/dev/null)"
+[ -n "$FSTYPE" ] || FSTYPE="auto"
+mkdir -p /mnt/data
+uci -q delete fstab.data
+uci set fstab.data=mount
+uci set fstab.data.device="$DATA_PART"
+uci set fstab.data.target='/mnt/data'
+uci set fstab.data.fstype="$FSTYPE"
+uci set fstab.data.options='rw,noatime'
+uci set fstab.data.enabled='1'
+uci commit fstab
+
+# 本次立即挂载（不必等重启）
+mount "$DATA_PART" /mnt/data 2>/dev/null || true
+
+exit 0

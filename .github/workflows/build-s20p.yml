@@ -45,6 +45,14 @@ jobs:
         run: |
           bash Scripts/inject-s20p-packages.sh
 
+      - name: Prepare /mnt/data automount overlay
+        run: |
+          mkdir -p files/etc/uci-defaults
+          cp Scripts/s20p-99-mount-data files/etc/uci-defaults/99_s20p_mount_data
+          chmod +x files/etc/uci-defaults/99_s20p_mount_data
+          echo "--- uci-defaults 注入 ---"
+          cat files/etc/uci-defaults/99_s20p_mount_data | head -8
+
       - name: Seed config
         run: |
           cat > .config <<'EOF'
@@ -62,6 +70,7 @@ jobs:
           CONFIG_PACKAGE_luci-app-fwx-dashboard-setting=y
           CONFIG_PACKAGE_luci-app-fwx-network=y
           CONFIG_PACKAGE_luci-app-fwx-firewall=y
+          CONFIG_PACKAGE_gdisk=y
           EOF
           make defconfig -j1
           grep -c "supergateway_s20p" .config
