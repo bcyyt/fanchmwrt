@@ -28,17 +28,16 @@ jobs:
           sudo unsquashfs -d rootfs sysupgrade-supergateway_s20p/root > /dev/null
           sudo chown -R runner:docker rootfs 2>/dev/null || sudo chmod -R a+rX rootfs
           echo "fwxd: $(ls -la rootfs/usr/bin/fwxd 2>/dev/null)"
-          echo "libfwx: $(ls rootfs/usr/lib/libfwx* 2>/dev/null)"
+          echo "=== fwx.ko 与内核版本 ==="
+          ls rootfs/lib/modules/ 2>/dev/null
+          ls -la rootfs/lib/modules/*/fwx.ko 2>/dev/null
+          for ko in rootfs/lib/modules/*/fwx.ko; do
+            strings "$ko" | grep -m1 "vermagic" || true
+          done
 
       - name: Collect fwx components
         run: |
           cd rootfs
-          # tar 失败时逐步排查：先列出存在性
-          for f in usr/bin/fwxd etc/init.d/fwx usr/lib/libfwx_common.so \
-                   usr/lib/lua/luci/controller/fwx_dashboard.lua \
-                   usr/share/rpcd/acl.d/luci-app-fwx.json; do
-            [ -e "$f" ] && echo "OK  $f" || echo "MISS $f"
-          done
           tar czf ../fwx-components.tar.gz \
             usr/bin/fwxd usr/bin/fwx_cli.sh usr/bin/fwx_app_init usr/bin/fwx-dump usr/bin/rule_manager \
             etc/init.d/fwx etc/fwxd \
@@ -48,19 +47,21 @@ jobs:
             usr/share/rpcd/acl.d/luci-app-fwx.json \
             usr/lib/libfwx_common.so* \
             usr/lib/libsqlite3.so* usr/lib/libmosquitto.so* \
-            usr/lib/libcurl.so* usr/lib/libcrypto.so* usr/lib/libssl.so* \
             usr/lib/lua/luci/controller/fwx_dashboard.lua \
             usr/lib/lua/luci/view/fwx_dashboard \
             usr/lib/lua/luci/model/cbi/fwx_dashboard \
-            etc/uci-defaults 2>&1 | head -5
+            lib/modules 2>&1 | head -5
+          cp etc/uci-defaults/100_fwx ../100_fwx
           cd ..
           ls -lh fwx-components.tar.gz
           echo "=== 内容清单 ==="
-          tar tzf fwx-components.tar.gz
+          tar tzf fwx-components.tar.gz | head -60
 
       - name: Upload components
         uses: actions/upload-artifact@v4
         with:
           name: fwx-components
-          path: fwx-components.tar.gz
+          path: |
+            fwx-components.tar.gz
+            100_fwx
           retention-days: 7
