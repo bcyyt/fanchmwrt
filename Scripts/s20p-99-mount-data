@@ -1,16 +1,26 @@
 #!/bin/sh
 # S20P: eMMC 剩余空间自动挂载 /mnt/data（首次启动执行一次，随后自动删除）
 # 布局兼容：
-#  A) 已有 data / rootfs_data 分区（恩山 2G 布局）→ 直接挂载
-#  B) 无数据分区但有紧跟 rootfs 的分区 → 当作数据分区
+#  A) 已有未被占用的 data / rootfs_data 分区（恩山 2G 布局）→ 直接挂载
+#     注：rootfs_data 若已被系统用作 overlay（/proc/mounts 可见）则自动跳过
+#  B) 无数据分区但有紧跟 rootfs 的未占用分区 → 当作数据分区
 #  C) 无数据分区且有未分配空间（需 gdisk）→ 自动创建 data 分区
 # 文件系统：已有则原样挂载（保留数据）；空分区格式化为 f2fs（eMMC 友好）
 
 DATA_PART=""
 
+# 分区是否已被挂载（overlay 占用的 rootfs_data 不能再当数据盘）
+is_mounted() {
+	grep -q "^$1 " /proc/mounts 2>/dev/null && return 0
+	local d
+	d="$(readlink -f "$1" 2>/dev/null)"
+	[ -n "$d" ] && grep -q "^$d " /proc/mounts 2>/dev/null && return 0
+	return 1
+}
+
 # --- A) 按 GPT 分区名找（恩山 2G 布局的数据分区一般叫 data 或 rootfs_data）---
 for pl in data rootfs_data; do
-	if [ -e "/dev/disk/by-partlabel/$pl" ]; then
+	if [ -e "/dev/disk/by-partlabel/$pl" ] && ! is_mounted "/dev/disk/by-partlabel/$pl"; then
 		DATA_PART="/dev/disk/by-partlabel/$pl"
 		break
 	fi
@@ -24,7 +34,9 @@ if [ -z "$DATA_PART" ]; then
 			DISK="${ROOT_DEV%p*}"
 			NUM="${ROOT_DEV##*p}"
 			NEXT=$((NUM + 1))
-			[ -b "${DISK}p${NEXT}" ] && DATA_PART="${DISK}p${NEXT}"
+			if [ -b "${DISK}p${NEXT}" ] && ! is_mounted "${DISK}p${NEXT}"; then
+				DATA_PART="${DISK}p${NEXT}"
+			fi
 			;;
 	esac
 fi
@@ -34,13 +46,13 @@ if [ -z "$DATA_PART" ] && command -v sgdisk >/dev/null 2>&1; then
 	DISK="${DISK:-/dev/mmcblk0}"
 	LAST_END="$(sgdisk -p "$DISK" 2>/dev/null | awk 'END{print $3}')"
 	TOTAL="$(blockdev --getsz "$DISK" 2>/dev/null)"
-	if [ -n "$LAST_END" ] && [ -n "$TOTAL" ] && [ "$((TOTAL - LAST_END))" -gt 2097152 ]; then
+	if [ -n "$LAST_END" ] && [ -n "$TOTAL" ] && [ $((TOTAL - LAST_END)) -gt 2097152 ]; then
 		sgdisk -n "0:0:0" -c "0:data" "$DISK" >/dev/null 2>&1
 		partprobe "$DISK" >/dev/null 2>&1
 		sleep 2
-		for pl in data; do
-			[ -e "/dev/disk/by-partlabel/$pl" ] && DATA_PART="/dev/disk/by-partlabel/$pl"
-		done
+		if [ -e "/dev/disk/by-partlabel/data" ]; then
+			DATA_PART="/dev/disk/by-partlabel/data"
+		fi
 	fi
 fi
 
