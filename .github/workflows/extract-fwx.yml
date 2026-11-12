@@ -38,8 +38,9 @@ jobs:
       - name: Collect fwx components
         run: |
           cd rootfs
-          tar czf ../fwx-components.tar.gz \
-            usr/bin/fwxd usr/bin/fwx_cli.sh usr/bin/fwx_app_init usr/bin/fwx-dump usr/bin/rule_manager \
+          # 基础库在 /lib/（OpenWrt 传统），blobmsg 是下划线命名；
+          # 展开通配符并剔除不存在的项，避免单个缺失导致整包失败
+          TARLIST="usr/bin/fwxd usr/bin/fwx_cli.sh usr/bin/fwx_app_init usr/bin/fwx-dump usr/bin/rule_manager \
             etc/init.d/fwx etc/fwxd \
             etc/config/appfilter etc/config/macfilter etc/config/user_info etc/config/fwx \
             etc/config/macfilter_whitelist etc/config/appfilter_whitelist etc/config/fwx_record etc/config/mac_blacklist \
@@ -47,12 +48,19 @@ jobs:
             usr/share/rpcd/acl.d/luci-app-fwx.json \
             usr/lib/libfwx_common.so* \
             usr/lib/libsqlite3.so* usr/lib/libmosquitto.so* \
-            usr/lib/libubus.so* usr/lib/libubox.so* usr/lib/libblobmsg-json.so* \
+            lib/libubus.so* lib/libubox.so* lib/libblobmsg_json.so* lib/libuci.so* \
+            lib/libjson-c.so* lib/libubus-lua.so* \
+            usr/lib/libubus.so* usr/lib/libubox.so* usr/lib/libblobmsg_json.so* \
             usr/lib/lua/luci/controller/fwx_dashboard.lua \
             usr/lib/lua/luci/view/fwx_dashboard \
-            usr/lib/lua/luci/model/cbi/fwx_dashboard \
-            lib/modules 2>&1 | head -5
-          cp etc/uci-defaults/100_fwx ../100_fwx
+            usr/lib/lua/luci/model/cbi/fwx_dashboard"
+          # 展开通配符并剔除不存在的项
+          REAL=""
+          for pat in $TARLIST; do
+            for f in $pat; do [ -e "$f" ] && REAL="$REAL $f"; done
+          done
+          echo "实际打包: $REAL" | tr ' ' '\n' | head -40
+          tar czf ../fwx-components.tar.gz $REAL lib/modules 2>&1 | head -5
           cd ..
           ls -lh fwx-components.tar.gz
           echo "=== 内容清单 ==="
