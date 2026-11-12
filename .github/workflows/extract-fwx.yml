@@ -1,0 +1,65 @@
+name: Extract-Fwx-Components
+on:
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download firmware artifact (build #7)
+        run: |
+          curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -o fw.zip "https://api.github.com/repos/bcyyt/fanchmwrt/actions/artifacts/13924189680/zip"
+          unzip -q fw.zip
+          ls -lh
+
+      - name: Unpack sysupgrade root
+        run: |
+          tar xf openwrt-mediatek-filogic-supergateway_s20p-squashfs-sysupgrade.bin sysupgrade-supergateway_s20p/root
+          ls -lh sysupgrade-supergateway_s20p/
+
+      - name: Install squashfs-tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq squashfs-tools
+
+      - name: Unsquash rootfs
+        run: |
+          unsquashfs -d rootfs sysupgrade-supergateway_s20p/root > /dev/null
+          echo "fwxd: $(ls -la rootfs/usr/bin/fwxd 2>/dev/null)"
+          echo "libfwx: $(ls rootfs/usr/lib/libfwx* 2>/dev/null)"
+
+      - name: Collect fwx components
+        run: |
+          cd rootfs
+          # tar 失败时逐步排查：先列出存在性
+          for f in usr/bin/fwxd etc/init.d/fwx usr/lib/libfwx_common.so \
+                   usr/lib/lua/luci/controller/fwx_dashboard.lua \
+                   usr/share/rpcd/acl.d/luci-app-fwx.json; do
+            [ -e "$f" ] && echo "OK  $f" || echo "MISS $f"
+          done
+          tar czf ../fwx-components.tar.gz \
+            usr/bin/fwxd usr/bin/fwx_cli.sh usr/bin/fwx_app_init usr/bin/fwx-dump usr/bin/rule_manager \
+            etc/init.d/fwx etc/fwxd \
+            etc/config/appfilter etc/config/macfilter etc/config/user_info etc/config/fwx \
+            etc/config/macfilter_whitelist etc/config/appfilter_whitelist etc/config/fwx_record etc/config/mac_blacklist \
+            etc/fwx_version etc/fwx_release etc/fwx_init_status \
+            usr/share/rpcd/acl.d/luci-app-fwx.json \
+            usr/lib/libfwx_common.so* \
+            usr/lib/libsqlite3.so* usr/lib/libmosquitto.so* \
+            usr/lib/libcurl.so* usr/lib/libcrypto.so* usr/lib/libssl.so* \
+            usr/lib/lua/luci/controller/fwx_dashboard.lua \
+            usr/lib/lua/luci/view/fwx_dashboard \
+            usr/lib/lua/luci/model/cbi/fwx_dashboard \
+            etc/uci-defaults 2>&1 | head -5
+          cd ..
+          ls -lh fwx-components.tar.gz
+          echo "=== 内容清单 ==="
+          tar tzf fwx-components.tar.gz
+
+      - name: Upload components
+        uses: actions/upload-artifact@v4
+        with:
+          name: fwx-components
+          path: fwx-components.tar.gz
+          retention-days: 7
