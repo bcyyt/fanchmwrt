@@ -47,6 +47,7 @@ jobs:
             usr/share/rpcd/acl.d/luci-app-fwx.json \
             usr/lib/libfwx_common.so* \
             usr/lib/libsqlite3.so* usr/lib/libmosquitto.so* \
+            usr/lib/libubus.so* usr/lib/libubox.so* usr/lib/libblobmsg-json.so* \
             usr/lib/lua/luci/controller/fwx_dashboard.lua \
             usr/lib/lua/luci/view/fwx_dashboard \
             usr/lib/lua/luci/model/cbi/fwx_dashboard \
